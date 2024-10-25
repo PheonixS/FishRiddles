@@ -1,0 +1,12 @@
+smbus2
+sounddevice
+soundfile
+openai
+opencv-python
+picamera2
+face-recognition
+openai-whisper
+wavio
+python-socketio
+aioprocessing
+SpeechRecognition
