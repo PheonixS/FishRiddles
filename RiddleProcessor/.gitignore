@@ -1,0 +1,7 @@
+.conda
+.tmp
+__pycache__
+.env
+history.json
+metadata.json
+config.json
