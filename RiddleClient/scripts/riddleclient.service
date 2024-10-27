@@ -4,6 +4,7 @@ After=network.target
 Requires=i2c-check.service
 
 [Service]
+Environment=PYTHONUNBUFFERED=1
 Type=simple
 ExecStart=%PYTHON_PATH% %PROJECT_ROOT_PATH%/fish.py
 WorkingDirectory=%PROJECT_ROOT_PATH%
@@ -11,6 +12,7 @@ Environment="PATH=%VENV_PATH%/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/
 Environment="VIRTUAL_ENV=%VENV_PATH%"
 TimeoutStopSec=10
 Restart=on-failure
+KillMode=control-group
 
 [Install]
 WantedBy=multi-user.target
