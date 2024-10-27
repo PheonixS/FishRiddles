@@ -7,6 +7,8 @@ After=network.target
 Type=oneshot
 ExecStart=/usr/bin/check_i2c_device.sh
 RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
