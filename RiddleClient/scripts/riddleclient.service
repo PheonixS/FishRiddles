@@ -1,0 +1,16 @@
+[Unit]
+Description=Riddle Client - connects to Riddle Processor to give funny (I hope) riddles!
+After=network.target
+Requires=i2c-check.service
+
+[Service]
+Type=simple
+ExecStart=%PYTHON_PATH% %PROJECT_ROOT_PATH%/fish.py
+WorkingDirectory=%PROJECT_ROOT_PATH%
+Environment="PATH=%VENV_PATH%/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="VIRTUAL_ENV=%VENV_PATH%"
+TimeoutStopSec=10
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

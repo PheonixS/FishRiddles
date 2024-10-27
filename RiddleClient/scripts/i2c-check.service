@@ -1,0 +1,12 @@
+[Unit]
+Description=Check if Fish Proxy is available on I2C bus
+Requires=network.target
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/check_i2c_device.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
