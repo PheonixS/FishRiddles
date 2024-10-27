@@ -10,8 +10,8 @@ AGE_PROTO_PATH = .opencv_models/age_deploy.prototxt
 
 FACE_MODEL_URL = https://raw.githubusercontent.com/spmallick/learnopencv/17c758d3f394efa0d24e67b41dc03e45ff76b791/FaceDetectionComparison/models/res10_300x300_ssd_iter_140000_fp16.caffemodel
 FACE_PROTO_URL = https://raw.githubusercontent.com/spmallick/learnopencv/17c758d3f394efa0d24e67b41dc03e45ff76b791/FaceDetectionComparison/models/deploy.prototxt
-AGE_MODEL_URL = https://github.com/smahesh29/Gender-and-Age-Detection/raw/refs/heads/master/age_net.caffemodel
-AGE_PROTO_URL = https://github.com/smahesh29/Gender-and-Age-Detection/raw/refs/heads/master/age_deploy.prototxt
+AGE_MODEL_URL = https://raw.githubusercontent.com/smahesh29/Gender-and-Age-Detection/7c024d9d453c9b35a72a984d8821b5832ef17401/age_net.caffemodel
+AGE_PROTO_URL = https://raw.githubusercontent.com/smahesh29/Gender-and-Age-Detection/7c024d9d453c9b35a72a984d8821b5832ef17401/age_deploy.prototxt
 
 .PHONY: install
 install: $(VENV_DIR)/bin/activate
