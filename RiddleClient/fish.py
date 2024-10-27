@@ -16,10 +16,10 @@ from metadataparser import read_dict_by_key, save_or_update_dict_by_key
 from fishaudio import FishAudio
 
 # Paths to the models (adjust the paths if necessary)
-face_model_path = './opencv_models/res10_300x300_ssd_iter_140000_fp16.caffemodel'
-face_proto_path = './opencv_models/deploy.prototxt'
-age_model_path = './opencv_models/age_net.caffemodel'
-age_proto_path = './opencv_models/age_deploy.prototxt'
+face_model_path = '.opencv_models/res10_300x300_ssd_iter_140000_fp16.caffemodel'
+face_proto_path = '.opencv_models/deploy.prototxt'
+age_model_path = '.opencv_models/age_net.caffemodel'
+age_proto_path = '.opencv_models/age_deploy.prototxt'
 
 sio = socketio.AsyncClient(logger=True, engineio_logger=True)
 classifyQueue = AioQueue()
