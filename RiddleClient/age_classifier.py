@@ -1,3 +1,5 @@
+import signal
+import sys
 import uuid
 import cv2
 import numpy as np
@@ -38,7 +40,6 @@ class NumpyArrayDecoder(json.JSONDecoder):
             except:
                 pass  # Let it fall through if it's not convertible
         return obj
-
 
 class AgeClassifier:
     def __init__(self, queue, face_model_path: str, face_proto_path: str,
@@ -95,6 +96,15 @@ class AgeClassifier:
         self.recognized_faces = self.load_recognized_faces()
 
         self.last_detection_time = time.time()
+        self.exiting = False
+
+        def handle_sigterm(signum, frame):
+            print("AgeClassifier: Received SIGTERM or SIGINT. Shutting down gracefully...")
+            self.exiting = True
+
+        signal.signal(signal.SIGTERM, handle_sigterm)
+        signal.signal(signal.SIGINT, handle_sigterm)
+
 
     def send_state(self, state: AgeClassifierStates):
         self.queue.put({'state': state})
@@ -110,7 +120,7 @@ class AgeClassifier:
 
     def classify(self):
         try:
-            while True:
+            while not self.exiting:
                 # Capture frame-by-frame
                 frame = self.picam2.capture_array()
                 if frame is None:
@@ -208,8 +218,6 @@ class AgeClassifier:
                     self.last_detection_time = time.time()
 
                 time.sleep(0.5)
-        except KeyboardInterrupt:
-            print("AgeClassifier: KEYBOARD INTERRUPT, exiting")
         finally:
             # Release resources
             self.picam2.stop()
