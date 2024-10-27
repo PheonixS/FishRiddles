@@ -1,6 +1,7 @@
 [Unit]
 Description=Riddle Client - connects to Riddle Processor to give funny (I hope) riddles!
-After=network.target
+After=network-online.target
+Wants=network-online.target
 Requires=i2c-check.service
 
 [Service]
@@ -15,4 +16,4 @@ Restart=on-failure
 KillMode=control-group
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target

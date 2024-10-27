@@ -1,5 +1,3 @@
-from enum import Enum
-
 # Registers
 MOUTH_REG = 0x01
 DIRECT_CONTROL_REG = 0x02
@@ -22,16 +20,3 @@ CONTROL_IDLE = 0x10
 CONTROL_REQUESTED = 0x11
 CONTROL_UNDER_CONTROL = 0x12
 CONTROL_LEAVE = 0x13
-
-ERROR_PLEASE_WAIT = 0x20
-
-# Other
-REALISTIC_FISH_TAIL_FLAP = 0.2
-SLOW_TALK = 0.4
-FAST_TALK = 0.2
-
-class FishStates(Enum):
-    UP = 1
-    DOWN = 2
-    OPEN = 1
-    CLOSED = 2

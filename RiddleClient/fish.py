@@ -3,7 +3,6 @@
 import asyncio
 import base64
 import json
-import random
 import sys
 import time
 import socketio
@@ -229,6 +228,7 @@ async def read_from_classify_queue(classify_queue):
                             do_puppet("head_up")
                         else:
                             await sio.emit('greet_new_player', greet_new_player(message))
+                            do_puppet("head_up")
                     except (FileNotFoundError, ValueError, IOError):
                         print("Greet new player (or data currupted :| )!")
 
@@ -257,8 +257,6 @@ async def main():
     except asyncio.CancelledError:
         await sio.disconnect()
         read_task.cancel()
-        import threading
-        print(threading.enumerate())
 
 if __name__ == "__main__":
     if voice_processing.calibrate(duration=3):
