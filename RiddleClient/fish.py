@@ -3,7 +3,6 @@
 import asyncio
 import base64
 import json
-import random
 import sys
 import time
 import socketio
@@ -16,10 +15,10 @@ from metadataparser import read_dict_by_key, save_or_update_dict_by_key
 from fishaudio import FishAudio
 
 # Paths to the models (adjust the paths if necessary)
-face_model_path = './opencv_models/res10_300x300_ssd_iter_140000_fp16.caffemodel'
-face_proto_path = './opencv_models/deploy.prototxt'
-age_model_path = './opencv_models/age_net.caffemodel'
-age_proto_path = './opencv_models/age_deploy.prototxt'
+face_model_path = '.opencv_models/res10_300x300_ssd_iter_140000_fp16.caffemodel'
+face_proto_path = '.opencv_models/deploy.prototxt'
+age_model_path = '.opencv_models/age_net.caffemodel'
+age_proto_path = '.opencv_models/age_deploy.prototxt'
 
 sio = socketio.AsyncClient(logger=True, engineio_logger=True)
 classifyQueue = AioQueue()
@@ -229,6 +228,7 @@ async def read_from_classify_queue(classify_queue):
                             do_puppet("head_up")
                         else:
                             await sio.emit('greet_new_player', greet_new_player(message))
+                            do_puppet("head_up")
                     except (FileNotFoundError, ValueError, IOError):
                         print("Greet new player (or data currupted :| )!")
 
@@ -257,8 +257,6 @@ async def main():
     except asyncio.CancelledError:
         await sio.disconnect()
         read_task.cancel()
-        import threading
-        print(threading.enumerate())
 
 if __name__ == "__main__":
     if voice_processing.calibrate(duration=3):

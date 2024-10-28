@@ -1,0 +1,14 @@
+[Unit]
+Description=Check if Fish Proxy is available on I2C bus
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%SCRIPT_FULL_PATH%
+RemainAfterExit=yes
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
