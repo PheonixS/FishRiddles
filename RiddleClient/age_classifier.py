@@ -7,44 +7,22 @@ import face_recognition
 from picamera2 import Picamera2
 import time
 import json
-import os
 from enum import Enum
+
+from pydantic import ValidationError
+
+from models.history import *
+from models.profile import *
+from models.responses import *
 
 
 class AgeClassifierStates(Enum):
     NO_FACE_DETECTED = 0x30
 
-
-class NumpyArrayEncoder(json.JSONEncoder):
-    def default(self, obj):
-        if isinstance(obj, np.integer):
-            return int(obj)
-        elif isinstance(obj, np.floating):
-            return float(obj)
-        elif isinstance(obj, np.ndarray):
-            return obj.tolist()
-        else:
-            return super(NumpyArrayEncoder, self).default(obj)
-
-
-class NumpyArrayDecoder(json.JSONDecoder):
-    def __init__(self, *args, **kwargs):
-        # Call the parent constructor
-        super().__init__(object_hook=self.object_hook, *args, **kwargs)
-
-    def object_hook(self, obj):
-        # Check if the object is a list and convert it back to a NumPy array
-        if isinstance(obj, list):
-            try:
-                return np.array(obj)
-            except:
-                pass  # Let it fall through if it's not convertible
-        return obj
-
 class AgeClassifier:
     def __init__(self, queue, face_model_path: str, face_proto_path: str,
                  age_model_path: str, age_proto_path: str,
-                 json_path: str = 'recognized_faces.json',
+                 json_path: str = 'RiddleClient/recognized_faces.json',
                  frame_width: int = 320, frame_height: int = 240,
                  process_interval: int = 5, timeout_duration: int = 10):
         """
@@ -93,30 +71,46 @@ class AgeClassifier:
         self.timeout_duration = timeout_duration
 
         # Load previously saved faces (if any)
-        self.recognized_faces = self.load_recognized_faces()
+        self.data = self.load()
 
         self.last_detection_time = time.time()
         self.exiting = False
 
         def handle_sigterm(signum, frame):
-            print("AgeClassifier: Received SIGTERM or SIGINT. Shutting down gracefully...")
+            print(
+                "AgeClassifier: Received SIGTERM or SIGINT. Shutting down gracefully...")
             self.exiting = True
 
         signal.signal(signal.SIGTERM, handle_sigterm)
         signal.signal(signal.SIGINT, handle_sigterm)
 
+    def process_new_person(self, face, confidence, current_face_encoding):
+        # Prepare the face ROI for age estimation
+        face_blob = cv2.dnn.blobFromImage(face, 1.0, (227, 227),
+                                        (78.4263377603, 87.7689143744,
+                                        114.895847746),
+                                        swapRB=False)
 
-    def send_state(self, state: AgeClassifierStates):
-        self.queue.put({'state': state})
+        # Predict the age
+        self.age_net.setInput(face_blob)
+        age_preds = self.age_net.forward()
+        age_index = age_preds[0].argmax()
+        age = self.AGE_BUCKETS[age_index]
+        age_confidence = age_preds[0][age_index]
 
-    def send_detected_metadata(self, data: dict, new: bool):
-        ret = {
-            "age": str(data['age']),
-            "confidence": float(data['confidence']),
-            "id": str(data['id']),
-            "flag_new": bool(new),
-        }
-        self.queue.put(ret)
+        print(f"Current age confidence: {age_confidence}")
+        if age_confidence > 0.6:
+            player_profile = UserProfile(
+                id=uuid.uuid4(),
+                age=age,
+                confidence=confidence,
+                encoding=current_face_encoding,
+                flag_new=True,
+            )
+            self.save(player_profile)
+            self.queue.put(player_profile.model_dump())
+        else:
+            print(f"not enough confidence to process user yet")
 
     def classify(self):
         try:
@@ -143,7 +137,7 @@ class AgeClassifier:
                 face_detected = False
                 for i in range(detections.shape[2]):
                     confidence = detections[0, 0, i, 2]
-                    if confidence > 0.7:  # Confidence threshold for face detection
+                    if confidence > 0.6:  # Confidence threshold for face detection
                         face_detected = True
                         self.last_detection_time = time.time()
                         # Get face coordinates
@@ -164,57 +158,37 @@ class AgeClassifier:
                         if current_face_encodings:
                             current_face_encoding = current_face_encodings[0]
 
-                            # If previous face encoding exists, compare
-                            if self.recognized_faces is not None:
+                            # no data saved yet, recognize new person
+                            if len(self.data.root) == 0:
+                                print("Nothing in the registry yet - assuming it's new person")
+                                self.process_new_person(face, confidence, current_face_encoding)
+                            elif len(self.data.root) > 0:
                                 matches = face_recognition.compare_faces(
-                                    [i['encoding'] for i in self.recognized_faces], current_face_encoding, self.face_similarity_threshold)
+                                    [i.encoding for i in self.data.root],
+                                    current_face_encoding,
+                                    self.face_similarity_threshold)
+                                # if match - send old information
                                 if any(matches):
-                                    previousPerson = self.recognized_faces[matches.index(
+                                    previousPerson = self.data.root[matches.index(
                                         True)]
-                                    self.send_detected_metadata(
-                                        previousPerson, False)
-                                    # print(
-                                    #     f"Same person detected: {previousPerson['id']}, {previousPerson['age']}, {previousPerson['confidence']}")
+                                    profile = UserProfile(
+                                        id=previousPerson.id,
+                                        age=previousPerson.age,
+                                        confidence=previousPerson.confidence,
+                                        flag_new=False,
+                                        encoding=current_face_encoding,
+                                    )
+                                    print(f"same person detected: {previousPerson.id}")
+                                    self.queue.put(profile.model_dump())
                                 else:
-                                    print("Different person detected")
-
-                                    # Prepare the face ROI for age estimation
-                                    face_blob = cv2.dnn.blobFromImage(face, 1.0, (227, 227),
-                                                                      (78.4263377603, 87.7689143744,
-                                                                       114.895847746),
-                                                                      swapRB=False)
-
-                                    # Predict the age
-                                    self.age_net.setInput(face_blob)
-                                    age_preds = self.age_net.forward()
-                                    age_index = age_preds[0].argmax()
-                                    age = self.AGE_BUCKETS[age_index]
-                                    age_confidence = age_preds[0][age_index]
-
-                                    print(
-                                        f"Current age confidence: {age_confidence}")
-                                    if age_confidence > 0.7:
-                                        # Save the face encoding and age data
-                                        id = str(uuid.uuid4())
-                                        self.save_recognized_face(
-                                            current_face_encoding, age, age_confidence, id)
-                                        self.send_detected_metadata(
-                                            {'age': age, 'confidence': confidence, 'id': id}, True)
-                                        # FIXME: Hack which translates base64 back to NumPy
-                                        self.recognized_faces = self.load_recognized_faces()
-
-                                        # Prepare label text
-                                        label_text = f"Age: {age} ({age_confidence * 100:.1f}%)"
-
-                                        # Log the result
-                                        print(label_text)
-                                        break
+                                    print("New person detected")
+                                    self.process_new_person(face, confidence, current_face_encoding)
+                                    break
 
                 # Check if the timeout duration has been reached without detecting a face
                 if not face_detected and (time.time() - self.last_detection_time) > self.timeout_duration:
-                    print(
-                        f"No face detected for {self.timeout_duration} seconds.")
-                    self.send_state(AgeClassifierStates.NO_FACE_DETECTED)
+                    self.queue.put(
+                        {'state': AgeClassifierStates.NO_FACE_DETECTED})
                     self.last_detection_time = time.time()
 
                 time.sleep(0.5)
@@ -222,28 +196,19 @@ class AgeClassifier:
             # Release resources
             self.picam2.stop()
 
-    def save_recognized_face(self, face_encoding, age, confidence, id):
-        """Save the face encoding, age, and confidence to JSON."""
-        # Add the new face encoding and its details
-        self.recognized_faces.append({
-            "encoding": face_encoding,
-            "age": str(age),  # Convert age to string (if needed)
-            # Ensure confidence is a native Python float
-            "confidence": float(confidence),
-            "id": id,
-        })
+    def save(self, profile: UserProfile):
+        """Save user profile to JSON"""
 
-        # Save the updated recognized faces to the JSON file
+        self.data.root.append(profile)
+
         with open(self.json_path, 'w') as f:
-            json.dump(self.recognized_faces, f,
-                      indent=4, cls=NumpyArrayEncoder)
+            f.write(self.data.model_dump_json(indent=4, exclude={'flag_new'}))
 
-    def load_recognized_faces(self) -> list:
-        """Load the face encodings and associated data from JSON."""
-        if os.path.exists(self.json_path):
+    def load(self) -> UserProfiles:
+        try:
             with open(self.json_path, 'r') as f:
-                try:
-                    return json.load(f, cls=NumpyArrayDecoder)
-                except json.JSONDecodeError:
-                    return list()
-        return list()
+                data = f.read()
+            return UserProfiles.model_validate_json(data)
+        except (FileNotFoundError, ValidationError):
+            print("UserProfiles does not exists or corrupted, initializing empty.")
+            return UserProfiles(root=[])

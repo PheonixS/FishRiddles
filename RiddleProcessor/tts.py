@@ -1,10 +1,16 @@
+import random
+from typing import List
+from httpcore import URL
 import pyaudio
 import io
+from pydantic import HttpUrl
 import requests
 import time
 import json
 from pprint import pprint
 import urllib
+
+from models.responses import TTSResponse
 
 
 class AllTalkAPI:
@@ -14,7 +20,7 @@ class AllTalkAPI:
     and perform various operations like generating TTS, switching models, etc.
     """
 
-    def __init__(self, config_file='config.json'):
+    def __init__(self, config_file='RiddleProcessor/config.json'):
         """
         Initialize the AllTalkAPI class.
         Loads configuration from a file or uses default values.
@@ -115,10 +121,10 @@ class AllTalkAPI:
             raise ValueError(
                 f"Unable to download file from server, error was: {str(e)}")
 
-    def get_wav_external_url(self, output_file_url):
+    def get_wav_external_url(self, output_file_url) -> HttpUrl:
         return f"{self.external_base_url}{output_file_url}"
 
-    def get_available_voices(self):
+    def get_available_voices(self) -> List:
         """
         Fetch available voices from the AllTalk server.
         Returns a list of available voices or None if the request fails.
@@ -131,6 +137,9 @@ class AllTalkAPI:
         except requests.RequestException as e:
             print(f"Error fetching available voices: {e}")
             return None
+    
+    def get_random_voice(self) -> str:
+        return random.choice(self.get_available_voices())
 
     def get_available_rvc_voices(self):
         """
@@ -160,7 +169,7 @@ class AllTalkAPI:
             return True
         return False
 
-    def generate_tts(self, text, character_voice, narrator_voice=None, **kwargs):
+    def generate_tts(self, text, character_voice, narrator_voice=None, **kwargs) -> dict:
         """
         Generate text-to-speech audio using the AllTalk server.
 
@@ -188,6 +197,11 @@ class AllTalkAPI:
             return response.json()
         else:
             raise ValueError(f"Unable to generate TTS")
+
+    def generate_tts_export(self, text, character_voice, narrator_voice=None, **kwargs) -> TTSResponse :
+        t = self.generate_tts(text, character_voice, narrator_voice, **kwargs)
+        file_url = self.get_wav_external_url(output_file_url=t['output_file_url'])
+        return TTSResponse(output_file_url=file_url)
 
     def generate_tts_realtime(self, text, voice, **kwargs):
         data = {

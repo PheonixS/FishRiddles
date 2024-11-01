@@ -1,14 +1,18 @@
 from faster_whisper import WhisperModel
 from pydub import AudioSegment
 from pydub.silence import detect_nonsilent
+from models.transcribe import *
+
 
 class SilenceDetectedError(Exception):
     """Custom exception for handling silence-only audio files."""
     pass
 
+
 class WhisperTranscriber:
     def __init__(self, model_name="medium"):
-        self.model = WhisperModel(model_name, device="cuda", compute_type="float16")
+        self.model = WhisperModel(
+            model_name, device="cuda", compute_type="float16")
 
     def detect_and_trim_silence(self, file_path, silence_thresh=-50, min_silence_len=500):
         """
@@ -23,10 +27,12 @@ class WhisperTranscriber:
         audio = AudioSegment.from_wav(file_path)
 
         # Detect non-silent chunks
-        non_silent_chunks = detect_nonsilent(audio, min_silence_len=min_silence_len, silence_thresh=silence_thresh)
+        non_silent_chunks = detect_nonsilent(
+            audio, min_silence_len=min_silence_len, silence_thresh=silence_thresh)
 
         if not non_silent_chunks:
-            raise SilenceDetectedError("The file contains only silence or non-voice sounds.")
+            raise SilenceDetectedError(
+                "The file contains only silence or non-voice sounds.")
 
         # If non-silent audio is detected, combine those chunks into a new audio segment
         trimmed_audio = AudioSegment.silent(duration=0)
@@ -35,7 +41,7 @@ class WhisperTranscriber:
 
         return trimmed_audio
 
-    def transcribe(self, file_path):
+    def transcribe(self, file_path: str) -> TranscribeResult:
         new_path = f'{file_path}.trimmed.wav'
 
         trimmed_audio = self.detect_and_trim_silence(file_path)
@@ -48,7 +54,7 @@ class WhisperTranscriber:
             raise SilenceDetectedError("No audible segment detected")
 
         first_segment = segments[0]
-        return {
-            'text': first_segment.text,
-            'lang': info.language,
-        }
+        return TranscribeResult(
+            text=first_segment.text.lower(),
+            lang=info.language,
+        )

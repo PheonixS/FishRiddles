@@ -1,5 +1,5 @@
 import signal
-from consts import *
+from .consts import *
 import smbus2
 import time
 from enum import Enum

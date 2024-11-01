@@ -5,3 +5,4 @@ __pycache__
 history.json
 metadata.json
 config.json
+riddles_registry.json

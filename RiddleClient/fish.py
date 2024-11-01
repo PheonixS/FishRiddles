@@ -2,25 +2,27 @@
 
 import asyncio
 import base64
-import json
 import sys
 import time
 import socketio
-from consts import *
-from fishcontroller import FishController, FishControllerStatuses
-from age_classifier import AgeClassifier, AgeClassifierStates
+
+from models.profile import NewPlayer, OldPlayer, UserPreference, UserProfile
+from .consts import *
+from .fishcontroller import FishController, FishControllerStatuses
+from .age_classifier import AgeClassifier, AgeClassifierStates
 from aioprocessing import AioQueue, AioPipe, AioProcess
-from voiceprocessing import VoiceProcessing
-from metadataparser import read_dict_by_key, save_or_update_dict_by_key
-from fishaudio import FishAudio
+from .voiceprocessing import VoiceProcessing
+from .fishaudio import FishAudio
+from .preferences import Preferences
+from models.responses import *
 
 # Paths to the models (adjust the paths if necessary)
-face_model_path = '.opencv_models/res10_300x300_ssd_iter_140000_fp16.caffemodel'
-face_proto_path = '.opencv_models/deploy.prototxt'
-age_model_path = '.opencv_models/age_net.caffemodel'
-age_proto_path = '.opencv_models/age_deploy.prototxt'
+face_model_path = 'RiddleClient/.opencv_models/res10_300x300_ssd_iter_140000_fp16.caffemodel'
+face_proto_path = 'RiddleClient/.opencv_models/deploy.prototxt'
+age_model_path = 'RiddleClient/.opencv_models/age_net.caffemodel'
+age_proto_path = 'RiddleClient/.opencv_models/age_deploy.prototxt'
 
-sio = socketio.AsyncClient(logger=True, engineio_logger=True)
+sio = socketio.AsyncClient(logger=True)
 classifyQueue = AioQueue()
 puppet_parent_conn, child_conn = AioPipe()
 
@@ -31,6 +33,7 @@ voice_processing = VoiceProcessing(
     mic_index=1, sample_rate=44100, chunk_size=512, energy_threshold=18000)
 
 fish_audio = FishAudio()
+player_preferences = Preferences()
 
 
 def start_classify(queue):
@@ -43,7 +46,7 @@ def start_classify(queue):
         frame_width=320,
         frame_height=240,
         process_interval=5,
-        timeout_duration=3,
+        timeout_duration=5,
     )
     classifier.classify()
 
@@ -82,43 +85,18 @@ async def disconnect():
     print('disconnected from server')
 
 
-@sio.on('processed')
-async def on_processed(data):
-    print("Server response:", data['message'])
-
-
 @sio.on('error')
 async def on_error(error):
     print("Error:", error['error'])
 
 
-@sio.on('save_player_language')
-async def on_save_player_language(data):
-    print(f'saving player language: {json.dumps(data)}')
-    save_or_update_dict_by_key("metadata.json", data['id'], {
-                               "lang": data['lang']})
-
-
-@sio.on('save_player_progress')
-async def on_save_player_progress(data):
-    print(f'saving player progress: {json.dumps(data)}')
-
-    save_or_update_dict_by_key("metadata.json", data['id'], {
-                               "lang": data['lang']})
-
-
-def make_payload(uuid, wav_data):
-    return {
-        "id": str(uuid),
-        "wav_b64": base64.b64encode(wav_data)
-    }
-
-
 @sio.on('say_no_continue')
 async def on_say_no_continue(data):
     try:
+        parsed = ResponseStop.model_validate_json(data)
+
         fish_audio.say_from_url_with_callback(
-            data['wav_location'], data['transcription'], do_puppet)
+            parsed.wav_location, parsed.transcription, do_puppet)
         do_puppet("head_down")
 
     except asyncio.CancelledError:
@@ -136,9 +114,7 @@ def flap_fin():
     do_puppet("tail_down")
 
 
-async def capture_audio(data):
-    uuid = data['id']
-
+async def capture_audio(data: ResponseContinue):
     audio_ready_event = asyncio.Event()
 
     def callback(_, audio):
@@ -156,11 +132,20 @@ async def capture_audio(data):
         stopper = voice_processing.start_background_listening(callback)
 
         while not audio_ready_event.is_set():
+            if fish_no_face.is_set():
+                print("Face no more detected near fish - stopping voice capture")
+                stopper(wait_for_stop=False)
+                return
+
             await asyncio.sleep(0.1)
 
         if wav_data is not None:
             print("Sending back recognized audio...")
-            await sio.emit('give_answer_on_riddle', make_payload(uuid, wav_data.get_wav_data()))
+            voice_chunk = PlayerVoiceChunk(
+                player=data.player,
+                recording=base64.b64encode(wav_data.get_wav_data()),
+            )
+            await emit_with_retry('give_answer_on_riddle', voice_chunk.model_dump_json())
 
         stopper(wait_for_stop=False)
     except asyncio.CancelledError:
@@ -168,74 +153,148 @@ async def capture_audio(data):
         stopper(wait_for_stop=False)
 
 
+@sio.on('save_player_preferences')
+async def on_save_player_preferences(data):
+    model = UserPreference.model_validate_json(data)
+    print(f"Saving user preferences for user: {model.id}")
+    player_preferences.save(model)
+
+
 @sio.on('say')
 async def on_say(data):
-    print(f'saying something')
+    try:
+        print(f'saying something')
 
-    if data['answer_correct']:
-        do_puppet("mouth_close")
-        do_puppet("head_down")
-        await asyncio.sleep(0.5)
-        fish_audio.play_wav("shreksophone.wav", blocking=False)
-        for _ in range(5):
-            flap_fin()
-            time.sleep(0.5)
-        fish_audio.wait_and_stop()
-        do_puppet("head_up")
+        parsed = ResponseContinue.model_validate_json(data)
 
-    if not fish_no_face.is_set():
-        fish_audio.say_from_url_with_callback(
-            data['wav_location'], data['transcription'], do_puppet)
+        if parsed.answer_correct:
+            do_puppet("mouth_close")
+            do_puppet("head_down")
+            await asyncio.sleep(0.5)
+            fish_audio.play_wav(
+                "RiddleClient/shreksophone.wav", blocking=False)
+            for _ in range(5):
+                flap_fin()
+                time.sleep(0.5)
+            fish_audio.wait_and_stop()
+            do_puppet("head_up")
 
-        await capture_audio(data)
-    else:
-        do_puppet("head_down")
+        if not fish_no_face.is_set():
+            fish_audio.say_from_url_with_callback(
+                parsed.wav_location, parsed.transcription, do_puppet)
+
+            await capture_audio(data=parsed)
+        else:
+            do_puppet("head_down")
+    except Exception as e:
+        print(f"on_say, exception was: {str(e)}")
 
 
-def greet_new_player(message):
-    fish_audio.say_with_callback("english.wav", "English?", do_puppet)
+@sio.on('retry_greeting')
+async def on_retry_greeting(data):
+    model = ResponseRetry.model_validate_json(data)
+    recording_b64 = base64.b64encode(greet_new_player())
+    await emit_with_retry('greet_new_player',
+                          NewPlayer(
+                              id=model.player.id,
+                              age=model.player.age,
+                              confidence=model.player.confidence,
+                              recording=recording_b64,
+                          ).model_dump_json())
+
+
+async def retry_no_player_preferences(profile: UserProfile):
+    recording_b64 = base64.b64encode(greet_new_player())
+    await emit_with_retry('greet_new_player',
+                          NewPlayer(
+                              id=profile.id,
+                              age=profile.age,
+                              confidence=profile.confidence,
+                              recording=recording_b64,
+                          ).model_dump_json())
+
+
+def greet_new_player() -> bytes:
+    """
+    Note: return Bytes of the player voice
+    """
+    fish_audio.say_with_callback(
+        "RiddleClient/english.wav", "English?", do_puppet)
     time.sleep(1)
-    fish_audio.say_with_callback("nederlands.wav", "Nederlands?", do_puppet)
+    fish_audio.say_with_callback(
+        "RiddleClient/nederlands.wav", "Nederlands?", do_puppet)
 
-    data_wav = voice_processing.listen().get_wav_data()
-    message['wav_b64'] = base64.b64encode(data_wav)
-    return message
+    return voice_processing.listen().get_wav_data()
+
+
+async def emit_with_retry(event: str, data):
+    max_retries = 3
+    current_retry = 0
+    while current_retry < max_retries:
+        try:
+            await sio.emit(event, data)
+            break
+        except Exception as e:
+            print(
+                f"There was an error {str(e)} emiting '{event}', retrying, attempt {current_retry}")
+            await sio.disconnect()
+            await sio.connect('http://192.168.88.46:8081',  transports=['websocket'])
+            current_retry += 1
+            await asyncio.sleep(1.5)
 
 
 async def read_from_classify_queue(classify_queue):
-    player_was_before = False
+    player_in_front_of_camera = False
 
     while True:
         try:
             message = await classify_queue.coro_get()
             if 'state' in message:
                 if message['state'] == AgeClassifierStates.NO_FACE_DETECTED:
-                    if player_was_before:
-                        do_puppet("head_down")
-                        player_was_before = False
+                    if player_in_front_of_camera:
                         fish_no_face.set()
+                        do_puppet("head_down")
+                        player_in_front_of_camera = False
             elif 'id' in message:
                 fish_no_face.clear()
-                if not player_was_before:
-                    try:
-                        data = read_dict_by_key("metadata.json", message['id'])
-                        if data:
-                            print("Greet old player!")
 
-                            message['lang'] = data['lang']
-                            await sio.emit('greet_old_player', message)
-                            await asyncio.sleep(1.5)
-                            do_puppet("head_up")
-                        else:
-                            await sio.emit('greet_new_player', greet_new_player(message))
-                            do_puppet("head_up")
-                    except (FileNotFoundError, ValueError, IOError):
-                        print("Greet new player (or data currupted :| )!")
+                profile = UserProfile.model_validate(message)
+                if not player_in_front_of_camera:
+                    if profile.flag_new:
+                        print("Greet NEW player!")
+                        recording_b64 = base64.b64encode(greet_new_player())
+                        player_info = NewPlayer(
+                            id=profile.id,
+                            age=profile.age,
+                            confidence=profile.confidence,
+                            recording=recording_b64,
+                        )
+                        await emit_with_retry('greet_new_player', player_info.model_dump_json())
+                        do_puppet("head_up")
+                    else:
+                        print("Greet OLD player!")
+                        try:
+                            player_prefs = player_preferences.get(profile.id)
 
-                        await sio.emit('greet_new_player', greet_new_player(message))
+                            player_info = OldPlayer(
+                                id=profile.id,
+                                age=profile.age,
+                                confidence=profile.confidence,
+                                lang=player_prefs.lang,
+                                voice=player_prefs.voice,
+                            )
+                            await emit_with_retry('greet_old_player', player_info.model_dump_json())
+                        except ValueError:
+                            print(
+                                "We have facial pattern, but no preferences saved.")
+                            print(
+                                "Retrying as its new Player so sever push us user preferences back.")
+                            await retry_no_player_preferences(profile)
+
+                        await asyncio.sleep(1.5)
                         do_puppet("head_up")
 
-                    player_was_before = True
+                    player_in_front_of_camera = True
         except asyncio.CancelledError:
             print("read_from_classify_queue was cancelled")
             break
@@ -244,6 +303,9 @@ async def read_from_classify_queue(classify_queue):
 
 
 async def main():
+    max_backoff = 5
+    backoff = 0.1
+
     read_task = asyncio.create_task(read_from_classify_queue(classifyQueue))
 
     classify_process = AioProcess(target=start_classify, args=(classifyQueue,))
@@ -251,12 +313,24 @@ async def main():
     classify_process.start()
     posses_fish_process.start()
 
-    try:
-        await sio.connect('http://192.168.88.46:8081',  transports=['websocket'])
-        await sio.wait()
-    except asyncio.CancelledError:
-        await sio.disconnect()
-        read_task.cancel()
+    while True:
+        try:
+            await sio.connect('http://192.168.88.46:8081',  transports=['websocket'])
+            await sio.wait()
+            backoff = 0.1
+        except asyncio.CancelledError:
+            await sio.disconnect()
+            read_task.cancel()
+            break
+        except Exception as e:
+            print(f"Exception occurred: {str(e)}")
+            await sio.disconnect()
+            print(f"Reconnecting in {backoff} sec...")
+            await asyncio.sleep(backoff)
+            if backoff == max_backoff:
+                backoff = 0.1
+            else:
+                backoff = min(backoff * 2, max_backoff)
 
 if __name__ == "__main__":
     if voice_processing.calibrate(duration=3):

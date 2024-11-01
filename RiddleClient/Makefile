@@ -3,6 +3,7 @@ PYTHON = python3
 PIP = $(VENV_DIR)/bin/pip
 PYTHON_BIN = $(VENV_DIR)/bin/python
 PROJECT_DIR = $(shell pwd)
+PARENT_DIR = $(shell dirname $(PROJECT_DIR))
 PYTHON_FULL_PATH = $(PROJECT_DIR)/$(PYTHON_BIN)
 VENV_DIR_FULL_PATH = $(PROJECT_DIR)/$(VENV_DIR)
 SYSTEMD_USER_PATH = $(HOME)/.config/systemd/user
@@ -31,8 +32,8 @@ AGE_PROTO_URL = https://raw.githubusercontent.com/smahesh29/Gender-and-Age-Detec
 SED_INPLACE := $(shell if sed --version 2>/dev/null | grep -q GNU; then echo '-i'; else echo '-i ""'; fi)
 
 .PHONY: install
-install: $(VENV_DIR)/bin/activate
-	@echo "Environment setup complete. Use 'source $(VENV_DIR)/bin/activate' to activate the environment."
+install: $(VENV_DIR)/bin/activate models
+	@echo "Environment setup complete. Use 'source $(VENV_DIR_FULL_PATH)/bin/activate' to activate the environment."
 
 $(VENV_DIR)/bin/activate: requirements.txt
 	$(PYTHON) -m venv --system-site-packages $(VENV_DIR)
@@ -68,7 +69,7 @@ install-daemon: $(I2C_CHECK_SERVICE_SOURCE_PATH) $(RIDDLE_CLIENT_SERVICE_SOURCE_
 	install -m 644 $(I2C_CHECK_SERVICE_SOURCE_PATH) $(I2C_CHECK_SERVICE_INSTALL_PATH)
 	install -m 644 $(RIDDLE_CLIENT_SERVICE_SOURCE_PATH) $(RIDDLE_CLIENT_SERVICE_INSTALL_PATH)
 	sed $(SED_INPLACE) -e 's|%PYTHON_PATH%|$(PYTHON_FULL_PATH)|g' $(RIDDLE_CLIENT_SERVICE_INSTALL_PATH) \
-					   -e 's|%PROJECT_ROOT_PATH%|$(PROJECT_DIR)|g' $(RIDDLE_CLIENT_SERVICE_INSTALL_PATH) \
+					   -e 's|%PROJECT_ROOT_PATH%|$(PARENT_DIR)|g' $(RIDDLE_CLIENT_SERVICE_INSTALL_PATH) \
 					   -e 's|%VENV_PATH%|$(VENV_DIR_FULL_PATH)|g' $(RIDDLE_CLIENT_SERVICE_INSTALL_PATH) \
 					   -e 's|%SCRIPT_FULL_PATH%|$(I2C_CHECK_SERVICE_SCRIPT_FULL_PATH)|g' $(I2C_CHECK_SERVICE_INSTALL_PATH)
 	systemctl --user daemon-reload

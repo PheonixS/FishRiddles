@@ -3,3 +3,4 @@ __pycache__
 .env
 recognized_faces.json
 metadata.json
+preferences.json

@@ -108,6 +108,7 @@ networkx=3.4.1=pypi_0
 numba=0.60.0=pypi_0
 numpy=2.0.2=pypi_0
 numpy-base=2.0.1=py311hd01c5d8_1
+numpydantic=1.6.4=pypi_0
 onnxruntime=1.19.2=pypi_0
 openai=1.52.0=pypi_0
 openai-whisper=20240930=pypi_0
