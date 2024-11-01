@@ -1,4 +1,5 @@
 import signal
+import sys
 import uuid
 import cv2
 import numpy as np
@@ -17,7 +18,6 @@ from models.responses import *
 
 class AgeClassifierStates(Enum):
     NO_FACE_DETECTED = 0x30
-
 
 class AgeClassifier:
     def __init__(self, queue, face_model_path: str, face_proto_path: str,

@@ -332,7 +332,6 @@ async def main():
             else:
                 backoff = min(backoff * 2, max_backoff)
 
-
 if __name__ == "__main__":
     if voice_processing.calibrate(duration=3):
         asyncio.run(main())
