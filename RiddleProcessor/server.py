@@ -1,34 +1,33 @@
-import os
-os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
+from dotenv import load_dotenv  # noqa
+load_dotenv()                  # noqa
 
-from metadataparser import read_dict_by_key, save_or_update_dict_by_key
+from models.responses import *
 import time
 import tempfile
 import sys
-from tts import AllTalkAPI
-from transcribe import WhisperTranscriber, SilenceDetectedError
-from fishriddles import FishRiddles
+from .tts import AllTalkAPI
+from .transcribe import WhisperTranscriber, SilenceDetectedError
+from models.riddles import *
+from .fishriddles import FishRiddles
 from aiohttp import web
 import socketio
 import logging
-from dotenv import load_dotenv
-import string
 import random
-import base64
+import string
+from models.profile import NewPlayer, OldPlayer, UserPreference
 
 
 logger = logging.getLogger(__name__)
-
-
-load_dotenv()
 
 
 tts = AllTalkAPI()
 transcriber = WhisperTranscriber()
 riddles = FishRiddles()
 
-sio = socketio.AsyncServer(async_mode='aiohttp', transports=[
-                           'websocket'], ping_timeout=60, ping_interval=10)
+sio = socketio.AsyncServer(async_mode='aiohttp',
+                           transports=['websocket'],
+                           ping_timeout=60,
+                           ping_interval=10)
 app = web.Application()
 sio.attach(app)
 
@@ -42,7 +41,7 @@ def save_bytes_to_temp_file(byte_data, suffix=".wav"):
     return temp_file_path
 
 
-def parse_language(text, possible_lang):
+def parse_language(text: str, possible_lang: str):
     if "nede" in text or "dutc" in text or "neithe" in text or "nethe" in text:
         return 'nl'
 
@@ -52,7 +51,7 @@ def parse_language(text, possible_lang):
     if "рус" in text or possible_lang == 'ru':
         return 'ru'
 
-    return 'nl'
+    return None
 
 
 def generate_random_string(max_length=10):
@@ -62,184 +61,174 @@ def generate_random_string(max_length=10):
     return random_letters
 
 
-def make_answer_continue(uuid: str, riddles_correct: int,
-                         answer_correct: bool, wav_location: str, transcription: str) -> dict:
-    return {
-        "id": uuid,
-        "riddles_correct": riddles_correct,
-        "answer_correct": answer_correct,
-        "transcription": transcription,
-        "wav_location": wav_location,
-    }
+async def greet_from_chatgpt(sid, info: OldPlayer, flag_new: bool):
+    ai_resp = riddles.greet_player(info=info, flag_new=flag_new)
 
-
-def make_answer_stop(uuid: str, wav_location: str, transcription: str) -> dict:
-    return {
-        "id": uuid,
-        "wav_location": wav_location,
-        "transcription": transcription,
-    }
-
-
-async def greet_from_chatgpt(sid, uuid, age, confidence, flag_new, lang, voice):
-    resp = riddles.greet_player(
-        uuid,
-        age,
-        confidence,
-        flag_new,
-        lang,
-    )
-
-    resp_tts = tts.generate_tts(
-        resp.text,
-        character_voice=voice,
-        language=lang,
+    resp_tts = tts.generate_tts_export(
+        text=ai_resp.text,
+        character_voice=info.voice,
+        language=info.lang,
         output_file_name=generate_random_string(),
     )
 
-    await sio.emit('say', make_answer_continue(
-        uuid, resp.riddles_correct, resp.answer_correct,
-        tts.get_wav_external_url(resp_tts['output_file_url']), resp.text),
-        room=sid)
+    await sio.emit('say',
+                   ResponseContinue(
+                       player=info,
+                       total_riddles_correct=ai_resp.riddles_correct,
+                       answer_correct=ai_resp.answer_correct,
+                       wav_location=resp_tts.output_file_url,
+                       transcription=ai_resp.text).model_dump_json(),
+                   room=sid)
 
 
 async def emit_error(func, sid, e):
     await sio.emit('error', {'error': f'exception in {func}: {str(e)}'}, room=sid)
 
 
-async def ask_player_to_repeat(sid, uuid, lang, voice):
-    riddle_response = riddles.cannot_understand_player(uuid)
-    resp_tts = tts.generate_tts(
+async def ask_player_to_repeat(sid, info: OldPlayer):
+    riddle_response = riddles.cannot_understand_player(info)
+
+    resp_tts = tts.generate_tts_export(
         text=riddle_response.text,
-        character_voice=voice,
-        language=lang,
+        character_voice=info.voice,
+        language=info.lang,
         output_file_name=generate_random_string(),
     )
 
-    wav_file_location = tts.get_wav_external_url(resp_tts['output_file_url'])
-
     await sio.emit('say',
-                   make_answer_continue(uuid,
-                                        riddle_response.riddles_correct,
-                                        riddle_response.answer_correct,
-                                        wav_file_location, riddle_response.text),
+                   ResponseContinue(
+                       player=info,
+                       answer_correct=riddle_response.answer_correct,
+                       total_riddles_correct=riddle_response.riddles_correct,
+                       transcription=riddle_response.text,
+                       wav_location=resp_tts.output_file_url,
+                   ).model_dump_json(),
                    room=sid)
 
 
 @sio.event
-async def give_answer_on_riddle(sid, data_dict):
+async def give_answer_on_riddle(sid, data):
     try:
-        uuid = data_dict['id']
-        data = read_dict_by_key("metadata.json", uuid)
-        lang = data['lang']
-        voice = data['voice']
-
-        data_wav = base64.b64decode(data_dict['wav_b64'])
-
-        tmp_path = save_bytes_to_temp_file(data_wav)
+        model = PlayerVoiceChunk.model_validate_json(data)
+        tmp_path = save_bytes_to_temp_file(model.recording)
         print(f'tmp path: {tmp_path}')
 
         try:
-            request = transcriber.transcribe(file_path=tmp_path)
+            player_response = transcriber.transcribe(file_path=tmp_path)
         except SilenceDetectedError:
             print("Only silence or non audible noise detected, asking to retry")
-            await ask_player_to_repeat(sid, uuid, lang, voice)
+            await ask_player_to_repeat(sid, model.player)
             return
 
-        request_text = request['text'].lower()
-        request_lang = request['lang']
+        print(f'transcribed: {player_response}')
 
-        print(f'transcribed: {request}')
-
-        if request_lang != lang:
+        if player_response.lang != model.player.lang:
             print("We decoded wrong language, ask player to repeat")
-            await ask_player_to_repeat(sid, uuid, lang, voice)
+            await ask_player_to_repeat(sid=sid, info=model.player)
             return
 
-        if request_text == "":
+        if player_response.text == "":
             print("Something wrong with transcribing, maybe just background noise?")
-            await ask_player_to_repeat(sid, uuid, lang, voice)
+            await ask_player_to_repeat(sid, model.player)
             return
 
         try:
             riddle_response = riddles.process_response_on_riddle(
-                uuid, request_text)
-        except ValueError:
+                info=model.player,
+                riddle_response=player_response.text,
+            )
+        except ValueError as e:
+            print(f"riddle_response ended with error, error was: {str(e)}")
             riddle_response = riddles.fish_troubles_with_memory(
-                lang=request_lang)
+                info=model.player)
 
-        resp_tts = tts.generate_tts(
-            riddle_response.text,
-            character_voice=voice,
-            language=lang,
+        resp_tts = tts.generate_tts_export(
+            text=riddle_response.text,
+            character_voice=model.player.voice,
+            language=model.player.lang,
             output_file_name=generate_random_string(),
         )
 
-        wav_location = tts.get_wav_external_url(resp_tts['output_file_url'])
-
         if riddle_response.player_wants_to_stop:
-            answer = make_answer_stop(
-                uuid=uuid, wav_location=wav_location, transcription=riddle_response.text)
-            await sio.emit('say_no_continue', answer, room=sid)
+            resp = ResponseStop(
+                player=model.player,
+                wav_location=resp_tts.output_file_url,
+                transcription=riddle_response.text,
+            )
+
+            await sio.emit('say_no_continue', resp.model_dump_json(), room=sid)
         else:
-            await sio.emit('say', make_answer_continue(
-                uuid=uuid,
-                riddles_correct=riddle_response.riddles_correct,
+            resp = ResponseContinue(
+                player=model.player,
+                total_riddles_correct=riddle_response.riddles_correct,
                 answer_correct=riddle_response.answer_correct,
-                wav_location=wav_location,
-                transcription=riddle_response.text),
-                room=sid)
+                transcription=riddle_response.text,
+                wav_location=resp_tts.output_file_url,
+            )
+
+            await sio.emit('say', resp.model_dump_json(), room=sid)
 
     except Exception as e:
         await emit_error("give_answer_on_riddle", sid, e)
 
 
 @sio.event
-async def greet_old_player(sid, data_dict):
+async def greet_old_player(sid, data):
     try:
-        id = data_dict['id']
-        data = read_dict_by_key("metadata.json", id)
-        lang = data['lang']
-        voice = data['voice']
-        age = riddles._get_age_by_id(id)
-        confidence = riddles._get_confidence_by_id(id)
-
-        await greet_from_chatgpt(sid, id, age, confidence, False, lang, voice)
+        model = OldPlayer.model_validate_json(data)
+        await greet_from_chatgpt(sid=sid, info=model, flag_new=False)
 
     except Exception as e:
         await emit_error("greet_old_player", sid, e)
 
 
 @sio.event
-async def greet_new_player(sid, data_dict):
+async def greet_new_player(sid, data):
     try:
-        wav_data = base64.b64decode(data_dict['wav_b64'])
-
-        tmp_path = save_bytes_to_temp_file(wav_data)
+        model = NewPlayer.model_validate_json(data)
+        tmp_path = save_bytes_to_temp_file(model.recording)
         print(f'tmp path: {tmp_path}')
 
-        request = transcriber.transcribe(tmp_path)
-        request_text = request['text'].lower()
-        request_lang = request['lang']
-        print(f'transcribed: {request}')
+        try:
+            transcribed = transcriber.transcribe(file_path=tmp_path)
+        except SilenceDetectedError:
+            print(
+                "Something wrong with initial greeting, ask player again startup sequence")
+            await sio.emit('retry_greeting',
+                           ResponseRetry(player=model)
+                           .model_dump_json(),
+                           room=sid)
+            return
 
-        id = data_dict['id']
-        lang = parse_language(request_text, request_lang)
+        print(f'transcribed: {transcribed}')
 
-        print(f'returned: {request}')
+        corrected_lang = parse_language(
+            text=transcribed.text, possible_lang=transcribed.lang)
 
-        available_voices = tts.get_available_voices()
-        voice = random.choice(available_voices)
+        if parse_language == None:
+            print("we cannot recognize language, trying again")
+            await sio.emit('retry_greeting',
+                           ResponseRetry(player=model)
+                           .model_dump_json(),
+                           room=sid)
+            return
 
-        save_or_update_dict_by_key("metadata.json", id,
-                                   {
-                                       "lang": lang,
-                                       "voice": voice,
-                                   })
+        player_info = OldPlayer(
+            id=model.id,
+            age=model.age,
+            confidence=model.confidence,
+            lang=corrected_lang,
+            voice=tts.get_random_voice(),
+        )
 
-        await sio.emit('save_player_language', {"id": id, "lang": lang}, room=sid)
+        player_preferences = UserPreference(
+            id=player_info.id,
+            lang=corrected_lang,
+            voice=player_info.voice,
+        )
 
-        await greet_from_chatgpt(sid, id, data_dict['age'], data_dict['confidence'], True, lang, voice)
+        await sio.emit('save_player_preferences', player_preferences.model_dump_json(), room=sid)
+        await greet_from_chatgpt(sid=sid, info=player_info, flag_new=True)
 
     except Exception as e:
         await emit_error("greet_new_player", sid, e)

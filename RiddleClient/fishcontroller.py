@@ -1,4 +1,5 @@
-from consts import *
+import signal
+from .consts import *
 import smbus2
 import time
 from enum import Enum
@@ -14,6 +15,14 @@ class FishController:
         self.pipe = pipe
 
         # internal stuff
+        self.exiting = False
+
+        def handle_sigterm(signum, frame):
+            print("FishController: Received SIGTERM or SIGINT. Shutting down gracefully...")
+            self.exiting = True
+
+        signal.signal(signal.SIGTERM, handle_sigterm)
+        signal.signal(signal.SIGINT, handle_sigterm)
 
     def send_status_on_completion(func):
         def wrapper(self, *args, **kwargs):
@@ -29,15 +38,13 @@ class FishController:
         print("Fish puppet under control")
 
         try:
-            while True:
+            while not self.exiting:
                 if self.pipe.poll(timeout=1):
                     method_name, args = self.pipe.recv()
                     method = getattr(self, method_name)
                     method(*args)
                 else:
                     time.sleep(0.1)
-        except KeyboardInterrupt:
-            print("FishController: KEYBOARD INTERRUPT, exiting")
         except Exception as e:
             print(f"Child process exception: {e}")
         finally:
@@ -67,7 +74,7 @@ class FishController:
             return None
 
     def _wait_for_state(self, register, want):
-        while self._get_state(register) != want:
+        while not self.exiting and (self._get_state(register) != want):
             time.sleep(0.1)
 
     def _assume_control(self):
