@@ -1,10 +1,12 @@
-#!/usr/bin/env python3
-
 import asyncio
 import base64
 import sys
 import time
 import socketio
+import os
+
+from dotenv import load_dotenv  # noqa
+load_dotenv()                  # noqa
 
 from models.profile import NewPlayer, OldPlayer, UserPreference, UserProfile
 from .consts import *
@@ -238,7 +240,7 @@ async def emit_with_retry(event: str, data):
             print(
                 f"There was an error {str(e)} emiting '{event}', retrying, attempt {current_retry}")
             await sio.disconnect()
-            await sio.connect('http://192.168.88.46:8081',  transports=['websocket'])
+            await sio.connect(os.getenv("RIDDLE_PROCESSOR_URL"),  transports=['websocket'])
             current_retry += 1
             await asyncio.sleep(1.5)
 
@@ -315,7 +317,7 @@ async def main():
 
     while True:
         try:
-            await sio.connect('http://192.168.88.46:8081',  transports=['websocket'])
+            await sio.connect(os.getenv("RIDDLE_PROCESSOR_URL"),  transports=['websocket'])
             await sio.wait()
             backoff = 0.1
         except asyncio.CancelledError:
