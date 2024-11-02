@@ -203,3 +203,7 @@ In the same conda prompt, execute.
 conda activate riddleprocessor
 python -m RiddleProcessor.server
 ```
+
+## Known issues
+- Race condition when Riddle Client continue to process multiple responses from the Riddle Processor which causes mixing of the output and/or missing input.
+- Default face recognition settings sometimes mixing up different persons: especially if they wear glasses.
