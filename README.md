@@ -1,6 +1,11 @@
-# Fish Riddles - AI powered Fish-formed Riddle-maker!
+# Fish Riddles - AI powered Fish-formed Riddle-maker
 
 > NOTE: Ahoy! This project consists of several parts. If, by any reason, you decided "I want to build something like this" I'll try to document as much as I can.
+
+## Demo
+Here is a short demo showing the interaction with the fish.
+
+https://youtu.be/fznJSKNcpw8
 
 ## Details about components
 ### Riddle Processor
@@ -129,6 +134,7 @@ Execute the following commands on the Raspberry PI:
 ```sh
 git clone git@github.com:PheonixS/FishRiddles.git
 cd FishRiddles
+# create new .env file in RiddleClient directory and put there actual data for RIDDLE_PROCESSOR_URL="http://IP:PORT"
 make RiddleClient
 ```
 
@@ -169,8 +175,31 @@ It will install User-level systemd and start Riddle Client service.
 
 - Activate Anaconda prompt from start menu
 - Go the the project folder you cloned
-- conda create --name riddleprocessor --file RiddleProcessor\requirements.txt
+- Create `config.json` in RiddleProcessor directory
+```json
+{
+    "api_alltalk_protocol": "http://",
+    "api_alltalk_ip_port": "127.0.0.1:7851",
+    "api_alltalk_external_protocol": "http://",
+    "api_alltalk_external_ip_port": "<PUT_IP_OF_YOU_TTS_INSTANCE_HERE>:7851",
+    "api_connection_timeout": 15
+}
+```
+- Run the following commands:
+```sh
+# create env
+conda env create --name riddleprocessor -f RiddleProcessor\environment.yml
+conda activate riddleprocessor
+pip install -r RiddleProcessor\requirements.txt
+# create .env file and put there your OpenAPI key
+# OPENAI_API_KEY="YOUR_KEY_HERE"
+```
 
 #### Run
 
-- In the same conda prompt, execute `python -m RiddleProcessor.server`
+In the same conda prompt, execute.
+```sh
+# Activate env if not activated
+conda activate riddleprocessor
+python -m RiddleProcessor.server
+```

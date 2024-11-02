@@ -205,7 +205,7 @@ async def greet_new_player(sid, data):
         corrected_lang = parse_language(
             text=transcribed.text, possible_lang=transcribed.lang)
 
-        if parse_language == None:
+        if corrected_lang == None:
             print("we cannot recognize language, trying again")
             await sio.emit('retry_greeting',
                            ResponseRetry(player=model)
