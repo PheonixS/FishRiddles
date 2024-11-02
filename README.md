@@ -21,6 +21,8 @@ The __Riddle Client__ runs on the Raspberry PI and perform the following tasks:
 * Connects to __Riddle Processor__
 * Continuously wait for the __Age Classifier__ to get information about The Player via the Camera module: is it new one, old one, and how old they are?
 * Player is not recognized anymore? Transition to Idle.
+* Capture Player's voice.
+* Control Fish puppet via **Fish Proxy** over I2C.
 
 ### Fish Proxy
 
